@@ -4,7 +4,6 @@ This node locates Aruco AR markers in images and publishes their ids and poses.
 Subscriptions:
    /camera/image_raw (sensor_msgs.msg.Image)
    /camera/camera_info (sensor_msgs.msg.CameraInfo)
-   /camera/camera_info (sensor_msgs.msg.CameraInfo)
 
 Published Topics:
     /aruco_poses (geometry_msgs.msg.PoseArray)
@@ -13,6 +12,9 @@ Published Topics:
     /aruco_markers (ros2_aruco_interfaces.msg.ArucoMarkers)
        Provides an array of all poses along with the corresponding
        marker ids.
+
+    /aruco_images (sensor_msgs.msg.Image)
+       Publishes all detected instances of images.
 
 Parameters:
     marker_size - size of the markers in meters (default .0625)
@@ -139,6 +141,7 @@ class ArucoNode(rclpy.node.Node):
         # Set up publishers
         self.poses_pub = self.create_publisher(PoseArray, "aruco_poses", 10)
         self.markers_pub = self.create_publisher(ArucoMarkers, "aruco_markers", 10)
+        self.images_pub = self.create_publisher(Image, "aruco_images", 10)
 
         # Set up fields for camera parameters
         self.info_msg = None
@@ -163,7 +166,7 @@ class ArucoNode(rclpy.node.Node):
             self.get_logger().warn("No camera info has been received!")
             return
 
-        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="mono8")
+        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="bgr8")
         markers = ArucoMarkers()
         pose_array = PoseArray()
         if self.camera_frame == "":
@@ -206,9 +209,15 @@ class ArucoNode(rclpy.node.Node):
                 markers.poses.append(pose)
                 markers.marker_ids.append(marker_id[0])
 
+                # Draw ArUco markers and axes on the image
+                cv2.aruco.drawDetectedMarkers(cv_image, corners, marker_ids)
+                cv2.drawFrameAxes(cv_image, self.intrinsic_mat, self.distortion, rvecs[i][0], tvecs[i][0], 0.01)
+
             self.poses_pub.publish(pose_array)
             self.markers_pub.publish(markers)
-
+            img_msg_with_markers = self.bridge.cv2_to_imgmsg(cv_image, encoding="bgr8")
+            img_msg_with_markers.header = img_msg.header
+            self.images_pub.publish(img_msg_with_markers)
 
 def main():
     rclpy.init()
