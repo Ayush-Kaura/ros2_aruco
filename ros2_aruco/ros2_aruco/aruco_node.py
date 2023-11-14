@@ -172,7 +172,7 @@ class ArucoNode(rclpy.node.Node):
         self.destroy_subscription(self.info_sub)
 
     def aruco_pub_callback(self, file_msg):
-        file_path = "/home/Chirathe/ros2_ws/rosbag/marker/" + file_msg.data + ".jpg"
+        file_path = "/home/Chirathe/ros2_ws/rosbag/marker/" + file_msg.data
         if os.path.isfile(file_path):
             image_cv = cv2.imread(file_path)
             if image_cv is not None:
