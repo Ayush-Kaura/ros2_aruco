@@ -38,9 +38,12 @@ import cv2
 import tf_transformations
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from geometry_msgs.msg import PoseArray, Pose
 from ros2_aruco_interfaces.msg import ArucoMarkers
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
+import os
+import time
 
 
 class ArucoNode(rclpy.node.Node):
@@ -137,11 +140,16 @@ class ArucoNode(rclpy.node.Node):
         self.create_subscription(
             Image, image_topic, self.image_callback, qos_profile_sensor_data
         )
+        
+        self.create_subscription(
+            String, "/aruco_file_id", self.aruco_pub_callback, qos_profile_sensor_data
+        )
 
         # Set up publishers
         self.poses_pub = self.create_publisher(PoseArray, "aruco_poses", 10)
         self.markers_pub = self.create_publisher(ArucoMarkers, "aruco_markers", 10)
         self.images_pub = self.create_publisher(Image, "aruco_images", 10)
+        self.aruco_pub = self.create_publisher(Image, "aruco_marker_id", 10)
 
         # Set up fields for camera parameters
         self.info_msg = None
@@ -152,6 +160,8 @@ class ArucoNode(rclpy.node.Node):
         parameters =  cv2.aruco.DetectorParameters()
         self.detector = cv2.aruco.ArucoDetector(dictionary, parameters)
 
+        self.aruco_id_timestamp = {}
+
         self.bridge = CvBridge()
 
     def info_callback(self, info_msg):
@@ -160,6 +170,14 @@ class ArucoNode(rclpy.node.Node):
         self.distortion = np.array(self.info_msg.d)
         # Assume that camera parameters will remain the same...
         self.destroy_subscription(self.info_sub)
+
+    def aruco_pub_callback(self, file_msg):
+        file_path = "/home/Chirathe/ros2_ws/rosbag/marker/" + file_msg.data + ".jpg"
+        if os.path.isfile(file_path):
+            image_cv = cv2.imread(file_path)
+            if image_cv is not None:
+                image_msg = self.bridge.cv2_to_imgmsg(image_cv, encoding="bgr8")
+                self.aruco_pub.publish(image_msg)
 
     def image_callback(self, img_msg):
         if self.info_msg is None:
@@ -182,6 +200,7 @@ class ArucoNode(rclpy.node.Node):
         corners, marker_ids, rejected = self.detector.detectMarkers(cv_image)
 
         if marker_ids is not None:
+            current_timestamp = time.time()
             if cv2.__version__ > "4.0.0":
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
                     corners, self.marker_size, self.intrinsic_mat, self.distortion
@@ -212,6 +231,12 @@ class ArucoNode(rclpy.node.Node):
                 # Draw ArUco markers and axes on the image
                 cv2.aruco.drawDetectedMarkers(cv_image, corners, marker_ids)
                 cv2.drawFrameAxes(cv_image, self.intrinsic_mat, self.distortion, rvecs[i][0], tvecs[i][0], 0.01)
+
+                if(marker_id[0] not in self.aruco_id_timestamp or current_timestamp - self.aruco_id_timestamp[marker_id[0]] > 5):
+                    self.aruco_id_timestamp[marker_id[0]] = current_timestamp
+                    image_filename = f"{marker_id[0]}_{int(current_timestamp)}.png"
+                    image_path = os.path.join("/home/Chirathe/ros2_ws/rosbag/marker/", image_filename)
+                    cv2.imwrite(image_path, cv_image)
 
             self.poses_pub.publish(pose_array)
             self.markers_pub.publish(markers)
